@@ -15,7 +15,7 @@ A Mac app that reads Calendar events to quickly visualize where the time went. E
 Only completed, timed events are included, and overlapping events are merged. Use **←** and **→** to move between weeks, and **↑** or **↓** to return to the current week.
 
 ## Colors
-By default, each tracker uses its calendar's color. Turn off **Use Calendar color** to pick a different one. If a color is too dark, click the **Use Lighter Color** button.
+By default, each tracker uses its calendar's color. Turn off **Use Calendar color** to pick a different one. If a color is too dark, click the **Use Lighter Color** button in settings.
 
 ## Install
 
