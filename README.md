@@ -1,6 +1,6 @@
 # calendarLens <a href="https://github.com/TimMacy/calendarLens/releases"><img height="25px" align="right" src="https://img.shields.io/github/v/release/TimMacy/calendarLens?style=for-the-badge" alt="Releases"></a><a href="https://github.com/TimMacy/calendarLens/blob/main/LICENSE"><img height="25px" align="right" src="https://img.shields.io/github/license/TimMacy/calendarLens?style=for-the-badge&color=white" alt="MIT License"></a>
 
-A Mac app that reads Calendar events to quickly visualize where the time went. Each tracker follows one event title in Calendar to show the weekly total and daily average.
+A Mac app that reads Calendar events to visualize where the time went. Each tracker follows one event title in Calendar to show the weekly total and daily average.
 
 <p align="center"><img width="80%" alt="calendarLens" src="https://github.com/user-attachments/assets/5016cc66-467c-4377-89c6-38fabb8f12f7" /></p>
 
