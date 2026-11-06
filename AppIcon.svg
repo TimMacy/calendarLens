@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+<filter id="lSh" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><feGaussianBlur stdDeviation="22"/></filter>
+<filter id="lGlow" filterUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><feGaussianBlur stdDeviation="26"/></filter>
+<linearGradient id="lTile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B2E38"/><stop offset="1" stop-color="#121419"/></linearGradient>
+<linearGradient id="lRim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.4"/><stop offset="0.35" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>
+<linearGradient id="lBar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#40C0FF"/><stop offset="1" stop-color="#0A84FF"/></linearGradient>
+<linearGradient id="lRing" gradientUnits="userSpaceOnUse" x1="360" y1="270" x2="660" y2="600"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/><stop offset="0.5" stop-color="#B9C3D2" stop-opacity="0.75"/><stop offset="1" stop-color="#5C6676" stop-opacity="0.9"/></linearGradient>
+<linearGradient id="lHandle" gradientUnits="userSpaceOnUse" x1="670" y1="650" x2="720" y2="600"><stop offset="0" stop-color="#1A1D24"/><stop offset="0.5" stop-color="#5A6272"/><stop offset="1" stop-color="#20242C"/></linearGradient>
+<radialGradient id="lGlass" cx="0.35" cy="0.3" r="0.9"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/><stop offset="0.6" stop-color="#7CC8FF" stop-opacity="0.06"/><stop offset="1" stop-color="#000000" stop-opacity="0.25"/></radialGradient>
+<clipPath id="lClip"><circle cx="500" cy="420" r="150"/></clipPath>
+<clipPath id="lTileClip"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+</defs>
+<rect x="130" y="150" width="764" height="790" rx="180" fill="#000000" fill-opacity="0.4" filter="url(#lSh)"/>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#lTile)"/>
+<g clip-path="url(#lTileClip)">
+<line x1="190" y1="742" x2="834" y2="742" stroke="#3A3F4B" stroke-width="4" stroke-linecap="round"/>
+<g fill="url(#lBar)" opacity="0.5">
+<path d="M214 740 V417 Q214 395 236 395 H252 Q274 395 274 417 V740 Z"/>
+<path d="M303 740 V396 Q303 374 325 374 H341 Q363 374 363 396 V740 Z"/>
+<path d="M392 740 V414 Q392 392 414 392 H430 Q452 392 452 414 V740 Z"/>
+<path d="M481 740 V541 Q481 519 503 519 H519 Q541 519 541 541 V740 Z"/>
+<path d="M570 740 V425 Q570 403 592 403 H608 Q630 403 630 425 V740 Z"/>
+<path d="M659 740 V462 Q659 440 681 440 H697 Q719 440 719 462 V740 Z"/>
+<path d="M748 740 V502 Q748 480 770 480 H786 Q808 480 808 502 V740 Z"/>
+</g>
+<line x1="190" y1="418" x2="834" y2="418" stroke="#A3A9B6" stroke-opacity="0.6" stroke-width="5" stroke-dasharray="14 12" stroke-linecap="round"/>
+<circle cx="530" cy="462" r="172" fill="#000000" fill-opacity="0.5" filter="url(#lSh)"/>
+<line x1="640" y1="580" x2="780" y2="720" stroke="#000000" stroke-opacity="0.5" stroke-width="60" stroke-linecap="round" filter="url(#lSh)"/>
+</g>
+<circle cx="500" cy="420" r="150" fill="#0B1220"/>
+<g clip-path="url(#lClip)">
+<rect x="380" y="420" width="240" height="160" rx="40" fill="#0A84FF" fill-opacity="0.5" filter="url(#lGlow)"/>
+<g transform="translate(500 420) scale(1.35) translate(-500 -420)">
+<g fill="url(#lBar)">
+<path d="M303 740 V396 Q303 374 325 374 H341 Q363 374 363 396 V740 Z"/>
+<path d="M392 740 V414 Q392 392 414 392 H430 Q452 392 452 414 V740 Z"/>
+<path d="M481 740 V541 Q481 519 503 519 H519 Q541 519 541 541 V740 Z"/>
+<path d="M570 740 V425 Q570 403 592 403 H608 Q630 403 630 425 V740 Z"/>
+<path d="M659 740 V462 Q659 440 681 440 H697 Q719 440 719 462 V740 Z"/>
+</g>
+<line x1="190" y1="418" x2="834" y2="418" stroke="#C9CED8" stroke-width="5" stroke-dasharray="14 12" stroke-linecap="round"/>
+</g>
+</g>
+<circle cx="500" cy="420" r="150" fill="url(#lGlass)"/>
+<line x1="617" y1="537" x2="758" y2="678" stroke="url(#lHandle)" stroke-width="58" stroke-linecap="round"/>
+<line x1="638" y1="534" x2="752" y2="648" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="8" stroke-linecap="round"/>
+<circle cx="500" cy="420" r="164" fill="none" stroke="url(#lRing)" stroke-width="28"/>
+<path d="M386 356 A130 130 0 0 1 444 302" fill="none" stroke="#FFFFFF" stroke-opacity="0.75" stroke-width="12" stroke-linecap="round"/>
+<rect x="102" y="102" width="820" height="820" rx="183" fill="none" stroke="url(#lRim)" stroke-width="4"/>
+</svg>
