@@ -2,7 +2,7 @@
 
 A Mac app that reads Calendar events to quickly visualize where the time went. Each tracker follows one event title in a calendar to show the weekly total and daily average.
 
-<p align="center"><img width="100%" alt="calendarLens" src="https://github.com/user-attachments/assets/5016cc66-467c-4377-89c6-38fabb8f12f7" /></p>
+<p align="center"><img width="80%" alt="calendarLens" src="https://github.com/user-attachments/assets/5016cc66-467c-4377-89c6-38fabb8f12f7" /></p>
 
 ## Add a Tracker
 1. Allow Full Access.
