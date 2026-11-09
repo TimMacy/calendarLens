@@ -7,12 +7,12 @@ A Mac app that reads Calendar events to visualize where the time went. Each trac
 ## Add a Tracker
 1. Allow Full Access.
 2. Click **+** to add a tracker.
-3. Enter a name, pick a calendar, and check one or more events.
+3. Enter a name, pick a calendar, and check one or more event titles.
 4. Choose whether events count toward the day they start or end.
 5. Optionally, set a daily goal and how many days per week count toward the average.
 6. Click **Save**.
 
-Only completed, timed events are included, and overlapping events are counts once. Use **←** and **→** to move between weeks, and **↑** or **↓** to return to the current week.
+Only completed events are included, and overlapping events are merged. Use **←** and **→** to move between weeks, and **↑** or **↓** to return to the current week.
 
 ## Colors
 By default, each tracker uses its calendar's color. Turn off **Use Calendar color** to pick a different one. If a color is too dark, click the **Use Lighter Color** button in settings.
