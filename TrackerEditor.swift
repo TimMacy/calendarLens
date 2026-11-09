@@ -7,7 +7,7 @@ struct TrackerEditor: View {
     let onCancel: () -> Void
     @State private var name: String
     @State private var calendarID: String
-    @State private var eventTitle: String
+    @State private var eventTitles: [String]
     @State private var grouping: DayGrouping
     @State private var hasDailyGoal: Bool
     @State private var dailyGoalHours: Double
@@ -26,7 +26,7 @@ struct TrackerEditor: View {
         self.onCancel = onCancel
         _name = State(initialValue: existing?.name ?? "")
         _calendarID = State(initialValue: existing?.calendarID ?? model.calendars.first?.id ?? "")
-        _eventTitle = State(initialValue: existing?.eventTitle ?? "")
+        _eventTitles = State(initialValue: existing?.eventTitles ?? [])
         _grouping = State(initialValue: existing?.grouping ?? .startDay)
         _hasDailyGoal = State(initialValue: existing?.dailyGoalHours != nil)
         _dailyGoalHours = State(initialValue: existing?.dailyGoalHours ?? 7)
@@ -43,7 +43,23 @@ struct TrackerEditor: View {
     }
 
     private var canSave: Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !eventTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.calendars.contains { $0.id == calendarID } && (!hasDailyGoal || (dailyGoalHours.isFinite && dailyGoalHours > 0))
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !eventTitles.isEmpty && model.calendars.contains { $0.id == calendarID } && (!hasDailyGoal || (dailyGoalHours.isFinite && dailyGoalHours > 0))
+    }
+
+    private var menuTitles: [String] {
+        Set(titles + eventTitles).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    private func isChecked(_ title: String) -> Binding<Bool> {
+        Binding(get: { eventTitles.contains(title) }, set: { checked in
+            if checked {
+                guard !eventTitles.contains(title) else { return }
+                eventTitles.append(title)
+                if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { name = title }
+            } else {
+                eventTitles.removeAll { $0 == title }
+            }
+        })
     }
 
     var body: some View {
@@ -59,26 +75,24 @@ struct TrackerEditor: View {
                         Text(calendar.label).tag(calendar.id)
                     }
                 }
-                TextField("Event title", text: $eventTitle, prompt: Text("Exact Calendar event title"))
-                HStack {
-                    Text("Past event titles").foregroundStyle(.secondary)
-                    Spacer()
-                    Menu("Choose a Title") {
+                LabeledContent("Event titles") {
+                    Menu(eventTitles.isEmpty ? "Choose Titles" : eventTitles.joined(separator: ", ")) {
                         if loadingTitles {
-                            Text("Loading event titles…")
-                        } else if titles.isEmpty {
+                            Text("Loading event titles")
+                        } else if menuTitles.isEmpty {
                             Text("No past event titles found")
                         }
-                        ForEach(titles, id: \.self) { title in
-                            Button(title) {
-                                eventTitle = title
-                                if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { name = title }
-                            }
+                        ForEach(menuTitles, id: \.self) { title in
+                            Toggle(title, isOn: isChecked(title))
+                        }
+                        if eventTitles.count > 1 {
+                            Divider()
+                            Button("Deselect All") { eventTitles = [] }
                         }
                     }
                     .disabled(model.access != .allowed)
                 }
-                Text("Suggestions come from completed events.")
+                Text("Titles come from completed events in the past year. Events with any checked title count; overlapping time counts once.")
                     .font(.caption).foregroundStyle(.secondary)
                 if let titleError {
                     Text(titleError).font(.caption).foregroundStyle(.red)
@@ -170,7 +184,7 @@ struct TrackerEditor: View {
 
     private func save() {
         guard canSave else { return }
-        let tracker = Tracker(id: existing?.id ?? UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines), calendarID: calendarID, eventTitle: eventTitle, grouping: grouping, dailyGoalHours: hasDailyGoal ? dailyGoalHours : nil, daysPerWeek: daysPerWeek, colorHex: usesCalendarColor ? nil : customColor.hexString, calendarColorHex: model.calendarColorHex(for: calendarID))
+        let tracker = Tracker(id: existing?.id ?? UUID(), name: name.trimmingCharacters(in: .whitespacesAndNewlines), calendarID: calendarID, eventTitles: eventTitles, grouping: grouping, dailyGoalHours: hasDailyGoal ? dailyGoalHours : nil, daysPerWeek: daysPerWeek, colorHex: usesCalendarColor ? nil : customColor.hexString, calendarColorHex: model.calendarColorHex(for: calendarID))
         do {
             try model.save(tracker)
             onSave(tracker)

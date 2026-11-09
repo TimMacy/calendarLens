@@ -29,9 +29,9 @@ public struct TimeCalculator: Sendable {
     public func report(events: [EventInterval], tracker: Tracker, weekStart: Date, now: Date) -> WeeklyReport {
         let monday = self.weekStart(containing: weekStart)
         let nextMonday = addingDays(7, to: monday)
-        let title = tracker.eventTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let titles = Set(Tracker.normalized(tracker.eventTitles))
         let matching = events.filter {
-            $0.calendarID == tracker.calendarID && $0.title.trimmingCharacters(in: .whitespacesAndNewlines) == title && !$0.isAllDay && $0.end <= now && $0.start < $0.end
+            $0.calendarID == tracker.calendarID && titles.contains($0.title.trimmingCharacters(in: .whitespacesAndNewlines)) && !$0.isAllDay && $0.end <= now && $0.start < $0.end
         }.sorted { $0.start < $1.start }
 
         var merged: [(interval: DateInterval, eventCount: Int)] = []

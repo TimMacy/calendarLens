@@ -12,18 +12,18 @@ public struct Tracker: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID
     public var name: String
     public var calendarID: String
-    public var eventTitle: String
+    public var eventTitles: [String]
     public var grouping: DayGrouping
     public var dailyGoalHours: Double?
     public var daysPerWeek: Int
     public var colorHex: String?
     public var calendarColorHex: String?
 
-    public init(id: UUID = UUID(), name: String, calendarID: String, eventTitle: String, grouping: DayGrouping, dailyGoalHours: Double? = nil, daysPerWeek: Int = 7, colorHex: String? = nil, calendarColorHex: String? = nil) {
+    public init(id: UUID = UUID(), name: String, calendarID: String, eventTitles: [String], grouping: DayGrouping, dailyGoalHours: Double? = nil, daysPerWeek: Int = 7, colorHex: String? = nil, calendarColorHex: String? = nil) {
         self.id = id
         self.name = name
         self.calendarID = calendarID
-        self.eventTitle = eventTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.eventTitles = Self.normalized(eventTitles)
         self.grouping = grouping
         self.dailyGoalHours = dailyGoalHours
         self.daysPerWeek = daysPerWeek
@@ -32,7 +32,13 @@ public struct Tracker: Codable, Identifiable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, calendarID, eventTitle, grouping, dailyGoalHours, daysPerWeek, colorHex, calendarColorHex
+        case id, name, calendarID, eventTitles, grouping, dailyGoalHours, daysPerWeek, colorHex, calendarColorHex
+        case eventTitle
+    }
+
+    public static func normalized(_ titles: [String]) -> [String] {
+        var seen = Set<String>()
+        return titles.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     public init(from decoder: Decoder) throws {
@@ -40,12 +46,29 @@ public struct Tracker: Codable, Identifiable, Equatable, Sendable {
         id = try values.decode(UUID.self, forKey: .id)
         name = try values.decode(String.self, forKey: .name)
         calendarID = try values.decode(String.self, forKey: .calendarID)
-        eventTitle = try values.decode(String.self, forKey: .eventTitle)
+        if let titles = try values.decodeIfPresent([String].self, forKey: .eventTitles) {
+            eventTitles = Self.normalized(titles)
+        } else {
+            eventTitles = Self.normalized([try values.decode(String.self, forKey: .eventTitle)])
+        }
         grouping = try values.decode(DayGrouping.self, forKey: .grouping)
         dailyGoalHours = try values.decodeIfPresent(Double.self, forKey: .dailyGoalHours)
         daysPerWeek = try values.decodeIfPresent(Int.self, forKey: .daysPerWeek) ?? 7
         colorHex = try values.decodeIfPresent(String.self, forKey: .colorHex)
         calendarColorHex = try values.decodeIfPresent(String.self, forKey: .calendarColorHex)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(name, forKey: .name)
+        try values.encode(calendarID, forKey: .calendarID)
+        try values.encode(eventTitles, forKey: .eventTitles)
+        try values.encode(grouping, forKey: .grouping)
+        try values.encodeIfPresent(dailyGoalHours, forKey: .dailyGoalHours)
+        try values.encode(daysPerWeek, forKey: .daysPerWeek)
+        try values.encodeIfPresent(colorHex, forKey: .colorHex)
+        try values.encodeIfPresent(calendarColorHex, forKey: .calendarColorHex)
     }
 }
 
