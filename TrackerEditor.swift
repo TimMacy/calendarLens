@@ -3,6 +3,7 @@ import SwiftUI
 struct TrackerEditor: View {
     @ObservedObject var model: AppModel
     let existing: Tracker?
+    @Binding var hasChanges: Bool
     let onSave: (Tracker) -> Void
     let onCancel: () -> Void
     @State private var name: String
@@ -19,9 +20,27 @@ struct TrackerEditor: View {
     @State private var titleError: String?
     @State private var saveError: String?
 
-    init(model: AppModel, existing: Tracker?, onSave: @escaping (Tracker) -> Void, onCancel: @escaping () -> Void) {
+    @State private var checkedByCalendar: [String: [String]] = [:]
+    @State private var original: Draft?
+
+    private struct Draft: Equatable {
+        var name: String
+        var calendarID: String
+        var eventTitles: [String]
+        var grouping: DayGrouping
+        var dailyGoalHours: Double?
+        var daysPerWeek: Int
+        var customColor: Color?
+    }
+
+    private var draft: Draft {
+        Draft(name: name, calendarID: calendarID, eventTitles: eventTitles, grouping: grouping, dailyGoalHours: hasDailyGoal ? dailyGoalHours : nil, daysPerWeek: daysPerWeek, customColor: usesCalendarColor ? nil : customColor)
+    }
+
+    init(model: AppModel, existing: Tracker?, hasChanges: Binding<Bool>, onSave: @escaping (Tracker) -> Void, onCancel: @escaping () -> Void) {
         self.model = model
         self.existing = existing
+        _hasChanges = hasChanges
         self.onSave = onSave
         self.onCancel = onCancel
         _name = State(initialValue: existing?.name ?? "")
@@ -43,7 +62,7 @@ struct TrackerEditor: View {
     }
 
     private var canSave: Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !eventTitles.isEmpty && model.calendars.contains { $0.id == calendarID } && (!hasDailyGoal || (dailyGoalHours.isFinite && dailyGoalHours > 0))
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !eventTitles.isEmpty && model.calendars.contains { $0.id == calendarID } && (!hasDailyGoal || (dailyGoalHours > 0 && dailyGoalHours <= 24))
     }
 
     private var menuTitles: [String] {
@@ -78,7 +97,7 @@ struct TrackerEditor: View {
                 LabeledContent("Event titles") {
                     Menu(eventTitles.isEmpty ? "Choose Titles" : eventTitles.joined(separator: ", ")) {
                         if loadingTitles {
-                            Text("Loading event titles")
+                            Text("Loading event titles…")
                         } else if menuTitles.isEmpty {
                             Text("No past event titles found")
                         }
@@ -159,6 +178,20 @@ struct TrackerEditor: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .tint(.blue)
+        .onChange(of: calendarID) { old, new in
+            checkedByCalendar[old] = eventTitles
+            if let checked = checkedByCalendar[new] {
+                eventTitles = checked
+            } else if model.calendars.contains(where: { $0.id == old }) {
+                eventTitles = []
+            }
+        }
+        .onChange(of: draft, initial: true) {
+            let opened = original ?? draft
+            original = opened
+            hasChanges = draft != opened
+        }
+        .onDisappear { hasChanges = false }
         .task(id: "\(calendarID)-\(model.access == .allowed)-\(model.settingsVisible)-\(model.eventTitlesRevision)") {
             guard model.access == .allowed && model.settingsVisible else {
                 titles = []

@@ -6,11 +6,15 @@ struct TrackerSettingsView: View {
     @State private var selectedID: UUID?
     @State private var adding = false
     @State private var editorGeneration = UUID()
+    @State private var editorHasChanges = false
+    @State private var pendingMove: Move?
     @State private var removal: Tracker?
     @State private var showingSync = false
     @State private var windowVisible = false
-    @State private var draggedID: UUID?
-    @State private var dropTargetID: UUID?
+
+    private enum Move {
+        case select(UUID?), add
+    }
 
     private var selectedTracker: Tracker? { model.trackers.first { $0.id == selectedID } }
     private var needsAttention: Bool {
@@ -44,47 +48,18 @@ struct TrackerSettingsView: View {
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 8)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(selectedID == tracker.id ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                                .background(selectedID == tracker.id ? Color.accentColor : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                                 .contentShape(Rectangle())
-                                .onTapGesture { selectedID = tracker.id }
+                                .contentShape(.dragPreview, RoundedRectangle(cornerRadius: 8))
+                                .onTapGesture { go(.select(tracker.id)) }
                                 .accessibilityElement(children: .combine)
                                 .accessibilityAddTraits(.isButton)
                                 .accessibilityAddTraits(selectedID == tracker.id ? .isSelected : [])
-                                .onDrag {
-                                    guard model.settingsWritable else { return NSItemProvider() }
-                                    draggedID = tracker.id
-                                    return NSItemProvider(object: tracker.id.uuidString as NSString)
-                                } preview: {
-                                    Text(tracker.name)
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 8)
-                                        .frame(width: 150, alignment: .leading)
-                                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-                                        .opacity(0.65)
-                                }
-                                .dragConfiguration(DragConfiguration(operationsWithinApp: .init(allowCopy: false, allowMove: true), operationsOutsideApp: .init(allowCopy: false)))
-                                .onDragSessionUpdated { session in
-                                    if case .ended = session.phase, draggedID == tracker.id {
-                                        draggedID = nil
-                                        dropTargetID = nil
-                                    }
-                                }
-                                .opacity(draggedID == tracker.id ? 0.3 : 1)
-                                .overlay {
-                                    if draggedID != nil {
-                                        TrackerDropTarget(trackerID: tracker.id, model: model, draggedID: $draggedID, dropTargetID: $dropTargetID)
-                                    }
-                                }
-                                .overlay(alignment: dropAlignment(for: tracker.id)) {
-                                    if dropTargetID == tracker.id {
-                                        Rectangle().fill(Color.accentColor).frame(height: 2)
-                                    }
-                                }
+                                .accessibilityAction { go(.select(tracker.id)) }
                             }
+                            .reorderable()
                         }
+                        .reorderContainer(for: Tracker.self, isEnabled: model.settingsWritable) { reorder($0) }
                         .padding(10)
                     }
                     .focusable()
@@ -92,17 +67,20 @@ struct TrackerSettingsView: View {
                     .onMoveCommand { direction in
                         guard !model.trackers.isEmpty else { return }
                         let index = model.trackers.firstIndex { $0.id == selectedID } ?? 0
-                        if direction == .up { selectedID = model.trackers[max(0, index - 1)].id }
-                        else if direction == .down { selectedID = model.trackers[min(model.trackers.count - 1, index + 1)].id }
+                        if direction == .up { go(.select(model.trackers[max(0, index - 1)].id)) }
+                        else if direction == .down { go(.select(model.trackers[min(model.trackers.count - 1, index + 1)].id)) }
                     }
                     .onChange(of: selectedID) { if selectedID != nil { adding = false } }
+                    .confirmationDialog("Discard unsaved changes?", isPresented: Binding(get: { pendingMove != nil }, set: { if !$0 { pendingMove = nil } }), titleVisibility: .visible) {
+                        Button("Discard Changes", role: .destructive) {
+                            if let pendingMove { apply(pendingMove) }
+                            pendingMove = nil
+                        }
+                        Button("Cancel", role: .cancel) { pendingMove = nil }
+                    }
                     Divider()
                     HStack {
-                        Button {
-                            selectedID = nil
-                            adding = true
-                            editorGeneration = UUID()
-                        } label: { Image(systemName: "plus").frame(height: 16) }
+                        Button { go(.add) } label: { Image(systemName: "plus").frame(height: 16) }
                         .help("Add Tracker")
                         .accessibilityLabel("Add Tracker")
                         .disabled(model.access != .allowed || !model.settingsWritable)
@@ -117,7 +95,7 @@ struct TrackerSettingsView: View {
                 .frame(width: 210)
                 Divider()
                 if adding || selectedTracker != nil {
-                    TrackerEditor(model: model, existing: adding ? nil : selectedTracker, onSave: { tracker in
+                    TrackerEditor(model: model, existing: adding ? nil : selectedTracker, hasChanges: $editorHasChanges, onSave: { tracker in
                         selectedID = tracker.id
                         adding = false
                         editorGeneration = UUID()
@@ -145,7 +123,12 @@ struct TrackerSettingsView: View {
             }
             Divider()
             HStack {
-                if let error = model.settingsError {
+                if let problem = model.loadProblem {
+                    Text(model.settingsError ?? problem).font(.caption).foregroundStyle(.red).lineLimit(2)
+                    Button("Show File") { model.showSettingsFile() }
+                    Button("Replace File") { model.replaceUnreadableSettings() }
+                        .help("Keeps a copy of the old file")
+                } else if let error = model.settingsError {
                     Text(error).font(.caption).foregroundStyle(.red).lineLimit(2)
                 }
                 Spacer()
@@ -170,7 +153,7 @@ struct TrackerSettingsView: View {
             selectedID = model.selectedTrackerID ?? model.trackers.first?.id
             windowVisible = true
         }
-        .onDisappear { windowVisible = false; model.setSettingsVisible(false); showingSync = false; draggedID = nil; dropTargetID = nil }
+        .onDisappear { windowVisible = false; model.setSettingsVisible(false); showingSync = false }
         .onChange(of: model.trackers) {
             if let selectedID, !model.trackers.contains(where: { $0.id == selectedID }) {
                 self.selectedID = model.trackers.first?.id
@@ -186,10 +169,31 @@ struct TrackerSettingsView: View {
         }
     }
 
-    private func dropAlignment(for id: UUID) -> Alignment {
-        guard let source = model.trackers.firstIndex(where: { $0.id == draggedID }),
-              let target = model.trackers.firstIndex(where: { $0.id == id }) else { return .top }
-        return source < target ? .bottom : .top
+    private func go(_ move: Move) {
+        if case .select(let id) = move, id == selectedID, !adding { return }
+        if editorHasChanges { pendingMove = move } else { apply(move) }
+    }
+
+    private func apply(_ move: Move) {
+        switch move {
+        case .select(let id):
+            selectedID = id
+            adding = false
+        case .add:
+            selectedID = nil
+            adding = true
+        }
+        editorGeneration = UUID()
+    }
+
+    private func reorder(_ difference: ReorderDifference<UUID, ReorderableSingleCollectionIdentifier>) {
+        let sources = IndexSet(difference.sources.compactMap { id in model.trackers.firstIndex { $0.id == id } })
+        let destination: Int
+        switch difference.destination.position {
+        case .before(let id): destination = model.trackers.firstIndex { $0.id == id } ?? model.trackers.count
+        case .end: destination = model.trackers.count
+        }
+        model.moveTrackers(from: sources, to: destination)
     }
 
     private var syncDetails: some View {
@@ -224,76 +228,6 @@ struct TrackerSettingsView: View {
         case .restricted: return "Calendar access is restricted on this Mac."
         case .allowed: return model.lastSuccessfulRefresh == nil ? "Not refreshed yet" : "Up to date"
         }
-    }
-}
-
-private struct TrackerDropTarget: NSViewRepresentable {
-    let trackerID: UUID
-    let model: AppModel
-    @Binding var draggedID: UUID?
-    @Binding var dropTargetID: UUID?
-
-    func makeNSView(context: Context) -> DropView {
-        let view = DropView()
-        view.registerForDraggedTypes([.string])
-        configure(view)
-        return view
-    }
-
-    func updateNSView(_ view: DropView, context: Context) { configure(view) }
-
-    private func configure(_ view: DropView) {
-        view.accepts = { info in
-            guard model.settingsWritable, let draggedID, draggedID != trackerID,
-                  model.trackers.contains(where: { $0.id == draggedID }) else { return false }
-            return info.draggingPasteboard.string(forType: .string) == draggedID.uuidString
-        }
-        view.enter = {
-            if dropTargetID != trackerID { dropTargetID = trackerID }
-        }
-        view.leave = {
-            if dropTargetID == trackerID { dropTargetID = nil }
-        }
-        view.drop = {
-            defer { draggedID = nil; dropTargetID = nil }
-            guard model.settingsWritable,
-                  let source = model.trackers.firstIndex(where: { $0.id == draggedID }),
-                  let target = model.trackers.firstIndex(where: { $0.id == trackerID }),
-                  source != target else { return false }
-            model.moveTrackers(from: IndexSet(integer: source), to: source < target ? target + 1 : target)
-            return true
-        }
-    }
-
-    final class DropView: NSView {
-        var accepts: (any NSDraggingInfo) -> Bool = { _ in false }
-        var enter: () -> Void = {}
-        var leave: () -> Void = {}
-        var drop: () -> Bool = { false }
-
-        override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-            guard accepts(sender) else { return [] }
-            enter()
-            return .move
-        }
-
-        override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-            draggingEntered(sender)
-        }
-
-        override func draggingExited(_ sender: (any NSDraggingInfo)?) { leave() }
-
-        override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-            sender.animatesToDestination = false
-            return accepts(sender)
-        }
-
-        override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-            guard accepts(sender) else { return false }
-            return drop()
-        }
-
-        override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) { leave() }
     }
 }
 

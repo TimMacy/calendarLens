@@ -9,125 +9,192 @@ final class AppModel: ObservableObject {
     @Published private(set) var trackers: [Tracker] = []
     @Published var selectedTrackerID: UUID?
     @Published private(set) var calendars: [CalendarChoice] = []
-    @Published private(set) var access: CalendarAccess = CalendarService.currentAccess()
+    @Published private(set) var access = CalendarService.currentAccess()
     @Published private(set) var report: WeeklyReport?
     @Published private(set) var isLoading = false
     @Published private(set) var refreshError: String?
     @Published private(set) var calendarMissing = false
     @Published private(set) var lastSuccessfulRefresh: Date?
     @Published var settingsError: String?
+    @Published private(set) var loadProblem: String?
     @Published private(set) var settingsVisible = false
     @Published private(set) var eventTitlesRevision = 0
     @Published private(set) var displayedWeek = TimeCalculator().weekStart(containing: Date())
 
     let service = CalendarService()
     private let repository: TrackerRepository
-    private var settingsLoaded = false
     private var refreshTask: Task<Void, Never>?
     private var refreshSequence = 0
-    private var calendarChanges: AnyCancellable?
+    private var observers: Set<AnyCancellable> = []
     private var eventTitleCache: [String: [String]] = [:]
+    private var eventTitlesStale = false
     private var calendarsNeedReload = true
     private static let legacyCalendarColorsKey = "calendarColors"
+    private var requestingPermission = false
+    private var followsCurrentWeek = true
+    private var shownSelection: Selection?
+    private var staleReportTask: Task<Void, Never>?
+    private var eventEndTask: Task<Void, Never>?
+
+    private struct Selection: Equatable {
+        var trackerID: UUID?
+        var week: Date
+    }
+
+    private struct ChangesOff: LocalizedError {
+        var errorDescription: String? { "Changes are off until the trackers file is replaced." }
+    }
 
     var selectedTracker: Tracker? { trackers.first { $0.id == selectedTrackerID } }
     var currentWeek: Date { TimeCalculator().weekStart(containing: Date()) }
     var canGoForward: Bool { displayedWeek < currentWeek }
-    var settingsWritable: Bool { settingsLoaded }
+    var settingsWritable: Bool { loadProblem == nil }
 
     init() {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("calendarLens", isDirectory: true)
         repository = TrackerRepository(fileURL: directory.appendingPathComponent("trackers.json"))
         do {
-            trackers = try repository.load()
-            settingsLoaded = true
-            selectedTrackerID = trackers.first?.id
-            moveLegacyCalendarColors()
+            let saved = try repository.load()
+            trackers = saved.trackers
+            if saved.unreadable > 0 {
+                loadProblem = "\(saved.unreadable == 1 ? "1 saved tracker" : "\(saved.unreadable) saved trackers") couldn't be read. Changes are off until the file is replaced."
+            }
         } catch {
-            settingsError = "Couldn't load saved trackers: \(error.localizedDescription)"
+            loadProblem = "Saved trackers couldn't be read. Changes are off until the file is replaced."
         }
-        calendarChanges = NotificationCenter.default.publisher(for: .EKEventStoreChanged)
+        selectedTrackerID = trackers.first?.id
+        settingsError = loadProblem
+        moveLegacyCalendarColors()
+
+        let center = NotificationCenter.default
+        center.publisher(for: .EKEventStoreChanged)
             .debounce(for: .milliseconds(400), scheduler: RunLoop.main)
             .sink { [weak self] _ in self?.refresh(reloadMetadata: true) }
+            .store(in: &observers)
+        center.publisher(for: NSApplication.didBecomeActiveNotification)
+            .merge(with: center.publisher(for: .NSCalendarDayChanged))
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refresh() }
+            .store(in: &observers)
     }
 
     func refresh(requestPermission: Bool = false, reloadMetadata: Bool = false) {
-        let reloadMetadata = reloadMetadata || requestPermission
-        if reloadMetadata {
+        if requestPermission {
             invalidateEventTitles()
             calendarsNeedReload = true
+        } else if reloadMetadata {
+            eventTitlesStale = true
+            calendarsNeedReload = true
         }
+        guard !requestingPermission else { return }
+        requestingPermission = requestPermission && CalendarService.currentAccess() == .needsPermission
         refreshTask?.cancel()
+        eventEndTask?.cancel()
         refreshSequence += 1
         let sequence = refreshSequence
         isLoading = true
-        refreshError = nil
-        calendarMissing = false
-        let tracker = selectedTracker
-        let week = min(displayedWeek, currentWeek)
-        displayedWeek = week
+        let week = followsCurrentWeek ? currentWeek : min(displayedWeek, currentWeek)
+        if displayedWeek != week { displayedWeek = week }
+        let selection = Selection(trackerID: selectedTrackerID, week: week)
+        if selection != shownSelection {
+            refreshError = nil
+            calendarMissing = false
+            if report != nil { clearStaleReportSoon() }
+        }
         refreshTask = Task {
             defer { if sequence == refreshSequence { isLoading = false } }
             do {
-                let permission = try await service.access(requestPermission: requestPermission)
+                let permission: CalendarAccess
+                do {
+                    defer { requestingPermission = false }
+                    permission = try await service.access(requestPermission: requestPermission)
+                }
                 guard sequence == refreshSequence && !Task.isCancelled else { return }
                 access = permission
                 guard permission == .allowed else {
-                    report = nil
                     calendars = []
+                    show(nil, for: selection)
                     return
                 }
                 let choices = try await service.calendars(reload: calendarsNeedReload)
                 guard sequence == refreshSequence && !Task.isCancelled else { return }
                 calendars = choices
                 calendarsNeedReload = false
-                saveCalendarColors(from: choices)
-                if let tracker, !choices.contains(where: { $0.id == tracker.calendarID }) {
-                    report = nil
-                    calendarMissing = true
+                saveCalendarDetails(from: choices)
+                let now = Date()
+                guard let tracker = trackers.first(where: { $0.id == selection.trackerID }) else {
+                    show(nil, for: selection)
+                    lastSuccessfulRefresh = now
                     return
                 }
-                let now = Date()
-                let result: WeeklyReport?
-                if let tracker {
-                    result = try await service.report(tracker: tracker, weekStart: week, now: now)
-                } else {
-                    result = nil
+                guard choices.contains(where: { $0.id == tracker.calendarID }) else {
+                    show(nil, missing: true, for: selection)
+                    return
                 }
+                let result = try await service.report(tracker: tracker, weekStart: week, now: now)
                 guard sequence == refreshSequence && !Task.isCancelled else { return }
-                report = result
+                show(result, for: selection)
                 lastSuccessfulRefresh = now
+                refreshWhenEventEnds(result.nextEventEnd)
             } catch {
                 guard sequence == refreshSequence && !Task.isCancelled else { return }
-                report = nil
                 if case CalendarReadError.missingCalendar = error {
-                    calendarMissing = true
+                    show(nil, missing: true, for: selection)
                 } else {
-                    refreshError = error.localizedDescription
+                    show(nil, error: error.localizedDescription, for: selection)
                 }
             }
         }
     }
 
+    private func show(_ report: WeeklyReport?, missing: Bool = false, error: String? = nil, for selection: Selection) {
+        staleReportTask?.cancel()
+        staleReportTask = nil
+        self.report = report
+        calendarMissing = missing
+        refreshError = error
+        shownSelection = selection
+    }
+
+    private func clearStaleReportSoon() {
+        guard staleReportTask == nil else { return }
+        staleReportTask = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            staleReportTask = nil
+            if shownSelection != Selection(trackerID: selectedTrackerID, week: displayedWeek) { report = nil }
+        }
+    }
+
+    private func refreshWhenEventEnds(_ end: Date?) {
+        guard let end else { return }
+        eventEndTask = Task {
+            try? await Task.sleep(for: .seconds(max(0, end.timeIntervalSinceNow) + 1))
+            guard !Task.isCancelled else { return }
+            refresh()
+        }
+    }
+
     func moveWeek(_ direction: Int) {
         displayedWeek = min(TimeCalculator().addingDays(direction * 7, to: displayedWeek), currentWeek)
+        followsCurrentWeek = displayedWeek == currentWeek
         refresh()
     }
 
     func showThisWeek() {
-        displayedWeek = currentWeek
+        followsCurrentWeek = true
         refresh()
     }
 
     func save(_ tracker: Tracker) throws {
+        guard settingsWritable else { throw ChangesOff() }
         var updated = trackers
         if let index = updated.firstIndex(where: { $0.id == tracker.id }) {
             updated[index] = tracker
         } else {
             updated.append(tracker)
         }
-        try repository.save(updated)
-        trackers = updated
+        try write(updated)
         selectedTrackerID = tracker.id
         refresh()
     }
@@ -138,23 +205,43 @@ final class AppModel: ObservableObject {
         updated.move(fromOffsets: source, toOffset: destination)
         guard updated != trackers else { return }
         do {
-            try repository.save(updated)
-            trackers = updated
+            try write(updated)
         } catch {
             settingsError = "Couldn't save tracker order: \(error.localizedDescription)"
         }
     }
 
     func removeTracker(_ id: UUID) {
-        let updated = trackers.filter { $0.id != id }
+        guard settingsWritable else { return }
         do {
-            try repository.save(updated)
-            trackers = updated
-            if selectedTrackerID == id { selectedTrackerID = updated.first?.id }
+            try write(trackers.filter { $0.id != id })
+            if selectedTrackerID == id { selectedTrackerID = trackers.first?.id }
             refresh()
         } catch {
             settingsError = "Couldn't save trackers: \(error.localizedDescription)"
         }
+    }
+
+    private func write(_ updated: [Tracker]) throws {
+        try repository.save(updated)
+        trackers = updated
+        settingsError = nil
+    }
+
+    func replaceUnreadableSettings() {
+        guard !settingsWritable else { return }
+        do {
+            try repository.backUp()
+            try repository.save(trackers)
+            loadProblem = nil
+            settingsError = nil
+        } catch {
+            settingsError = "Couldn't replace the file: \(error.localizedDescription)"
+        }
+    }
+
+    func showSettingsFile() {
+        NSWorkspace.shared.activateFileViewerSelecting([repository.fileURL])
     }
 
     func selectionChanged() {
@@ -162,6 +249,7 @@ final class AppModel: ObservableObject {
     }
 
     func setSettingsVisible(_ visible: Bool) {
+        if visible && eventTitlesStale { invalidateEventTitles() }
         guard settingsVisible != visible else { return }
         settingsVisible = visible
         if !visible { invalidateEventTitles() }
@@ -169,14 +257,19 @@ final class AppModel: ObservableObject {
 
     private func invalidateEventTitles() {
         eventTitleCache = [:]
+        eventTitlesStale = false
         eventTitlesRevision += 1
     }
 
     func eventTitles(for calendarID: String) async throws -> [String] {
+        if eventTitlesStale {
+            eventTitleCache = [:]
+            eventTitlesStale = false
+        }
         if let cached = eventTitleCache[calendarID] { return cached }
         let revision = eventTitlesRevision
         let titles = try await service.titles(calendarID: calendarID)
-        if settingsVisible && revision == eventTitlesRevision { eventTitleCache[calendarID] = titles }
+        if settingsVisible && revision == eventTitlesRevision && !eventTitlesStale { eventTitleCache[calendarID] = titles }
         return titles
     }
 
@@ -190,8 +283,27 @@ final class AppModel: ObservableObject {
         calendars.first { $0.id == calendarID }?.colorHex ?? trackers.first { $0.calendarID == calendarID && $0.calendarColorHex != nil }?.calendarColorHex
     }
 
-    private func saveCalendarColors(from choices: [CalendarChoice]) {
-        updateCalendarColors { id in choices.first { $0.id == id }?.colorHex }
+    private func saveCalendarDetails(from choices: [CalendarChoice]) {
+        guard settingsWritable else { return }
+        var updated = trackers
+        for index in updated.indices {
+            var choice = choices.first { $0.id == updated[index].calendarID }
+            if choice == nil, let title = updated[index].calendarTitle, let account = updated[index].calendarAccount {
+                let matches = choices.filter { $0.title == title && $0.account == account }
+                if matches.count == 1 { choice = matches[0] }
+            }
+            guard let choice else { continue }
+            updated[index].calendarID = choice.id
+            updated[index].calendarTitle = choice.title
+            updated[index].calendarAccount = choice.account
+            if let hex = choice.colorHex { updated[index].calendarColorHex = hex }
+        }
+        guard updated != trackers else { return }
+        do {
+            try write(updated)
+        } catch {
+            settingsError = "Couldn't save calendar details: \(error.localizedDescription)"
+        }
     }
 
     private func moveLegacyCalendarColors() {
@@ -212,8 +324,7 @@ final class AppModel: ObservableObject {
         }
         guard updated != trackers else { return true }
         do {
-            try repository.save(updated)
-            trackers = updated
+            try write(updated)
             return true
         } catch {
             settingsError = "Couldn't save calendar colors: \(error.localizedDescription)"

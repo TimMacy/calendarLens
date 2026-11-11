@@ -18,21 +18,25 @@ public struct Tracker: Codable, Identifiable, Equatable, Sendable {
     public var daysPerWeek: Int
     public var colorHex: String?
     public var calendarColorHex: String?
+    public var calendarTitle: String?
+    public var calendarAccount: String?
 
-    public init(id: UUID = UUID(), name: String, calendarID: String, eventTitles: [String], grouping: DayGrouping, dailyGoalHours: Double? = nil, daysPerWeek: Int = 7, colorHex: String? = nil, calendarColorHex: String? = nil) {
+    public init(id: UUID = UUID(), name: String, calendarID: String, eventTitles: [String], grouping: DayGrouping, dailyGoalHours: Double? = nil, daysPerWeek: Int = 7, colorHex: String? = nil, calendarColorHex: String? = nil, calendarTitle: String? = nil, calendarAccount: String? = nil) {
         self.id = id
         self.name = name
         self.calendarID = calendarID
         self.eventTitles = Self.normalized(eventTitles)
         self.grouping = grouping
         self.dailyGoalHours = dailyGoalHours
-        self.daysPerWeek = daysPerWeek
+        self.daysPerWeek = min(7, max(1, daysPerWeek))
         self.colorHex = colorHex
         self.calendarColorHex = calendarColorHex
+        self.calendarTitle = calendarTitle
+        self.calendarAccount = calendarAccount
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, calendarID, eventTitles, grouping, dailyGoalHours, daysPerWeek, colorHex, calendarColorHex
+        case id, name, calendarID, eventTitles, grouping, dailyGoalHours, daysPerWeek, colorHex, calendarColorHex, calendarTitle, calendarAccount
         case eventTitle
     }
 
@@ -52,10 +56,12 @@ public struct Tracker: Codable, Identifiable, Equatable, Sendable {
             eventTitles = Self.normalized([try values.decode(String.self, forKey: .eventTitle)])
         }
         grouping = try values.decode(DayGrouping.self, forKey: .grouping)
-        dailyGoalHours = try values.decodeIfPresent(Double.self, forKey: .dailyGoalHours)
-        daysPerWeek = try values.decodeIfPresent(Int.self, forKey: .daysPerWeek) ?? 7
+        dailyGoalHours = try values.decodeIfPresent(Double.self, forKey: .dailyGoalHours).flatMap { $0 > 0 ? $0 : nil }
+        daysPerWeek = min(7, max(1, try values.decodeIfPresent(Int.self, forKey: .daysPerWeek) ?? 7))
         colorHex = try values.decodeIfPresent(String.self, forKey: .colorHex)
         calendarColorHex = try values.decodeIfPresent(String.self, forKey: .calendarColorHex)
+        calendarTitle = try values.decodeIfPresent(String.self, forKey: .calendarTitle)
+        calendarAccount = try values.decodeIfPresent(String.self, forKey: .calendarAccount)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -69,6 +75,8 @@ public struct Tracker: Codable, Identifiable, Equatable, Sendable {
         try values.encode(daysPerWeek, forKey: .daysPerWeek)
         try values.encodeIfPresent(colorHex, forKey: .colorHex)
         try values.encodeIfPresent(calendarColorHex, forKey: .calendarColorHex)
+        try values.encodeIfPresent(calendarTitle, forKey: .calendarTitle)
+        try values.encodeIfPresent(calendarAccount, forKey: .calendarAccount)
     }
 }
 
@@ -99,12 +107,14 @@ public struct WeeklyReport: Equatable, Sendable {
     public let days: [DailyDuration]
     public let averageDayCount: Int
     public let eventCount: Int
+    public let nextEventEnd: Date?
     public var total: TimeInterval { days.reduce(0) { $0 + $1.duration } }
-    public var dailyAverage: TimeInterval { total / Double(averageDayCount) }
+    public var dailyAverage: TimeInterval { averageDayCount > 0 ? total / Double(averageDayCount) : 0 }
 }
 
 public enum DurationText {
     public static func format(_ duration: TimeInterval) -> String {
+        guard duration.isFinite else { return "0m" }
         let seconds = max(0, Int(duration.rounded()))
         let hours = seconds / 3600
         let minutes = seconds % 3600 / 60

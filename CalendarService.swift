@@ -31,12 +31,10 @@ actor CalendarService {
     private var calendarChoices: [CalendarChoice]?
 
     func access(requestPermission: Bool) async throws -> CalendarAccess {
-        var status = EKEventStore.authorizationStatus(for: .event)
-        if status == .notDetermined && requestPermission {
+        if requestPermission && Self.currentAccess() == .needsPermission {
             _ = try await store.requestFullAccessToEvents()
-            status = EKEventStore.authorizationStatus(for: .event)
         }
-        return Self.access(for: status)
+        return Self.currentAccess()
     }
 
     nonisolated static func currentAccess() -> CalendarAccess {
@@ -77,10 +75,11 @@ actor CalendarService {
         try requireAccess()
         guard let calendar = store.calendar(withIdentifier: tracker.calendarID) else { throw CalendarReadError.missingCalendar }
         let calculator = TimeCalculator()
-        let window = calculator.queryWindow(weekStart: weekStart, grouping: tracker.grouping)
-        let predicate = store.predicateForEvents(withStart: window.start, end: window.end, calendars: [calendar])
-        let events = store.events(matching: predicate).map {
-            EventInterval(calendarID: $0.calendar.calendarIdentifier, title: $0.title ?? "", start: $0.startDate, end: $0.endDate, isAllDay: $0.isAllDay)
+        let events = calculator.events(weekStart: weekStart, tracker: tracker, now: now) { window in
+            let predicate = store.predicateForEvents(withStart: window.start, end: window.end, calendars: [calendar])
+            return store.events(matching: predicate).map {
+                EventInterval(calendarID: $0.calendar.calendarIdentifier, title: $0.title ?? "", start: $0.startDate, end: $0.endDate, isAllDay: $0.isAllDay)
+            }
         }
         try requireAccess()
         return calculator.report(events: events, tracker: tracker, weekStart: weekStart, now: now)

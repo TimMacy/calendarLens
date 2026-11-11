@@ -131,9 +131,7 @@ struct DashboardView: View {
 
     @ViewBuilder private var content: some View {
         if !showsWelcome { trackerPicker }
-        if model.isLoading && model.report == nil && !showsWelcome, let tracker = model.selectedTracker {
-            dashboard(nil, tracker: tracker)
-        } else if let error = model.refreshError {
+        if let error = model.refreshError {
             statusCard("Couldn't Refresh", symbol: "exclamationmark.triangle", description: error) {
                 Text("Click Sync Now in Settings to try again.").font(.callout).foregroundStyle(Palette.muted)
             }
@@ -146,8 +144,8 @@ struct DashboardView: View {
             .buttonStyle(.borderedProminent)
         } else if model.calendarMissing {
             statusCard("Calendar Unavailable", symbol: "calendar.badge.exclamationmark", description: "The selected calendar no longer exists. Choose another calendar for this tracker in Settings.") {}
-        } else if let tracker = model.selectedTracker, let report = model.report {
-            dashboard(report, tracker: tracker)
+        } else if let tracker = model.selectedTracker {
+            dashboard(model.report, tracker: tracker)
         }
     }
 
@@ -250,7 +248,8 @@ private struct WeekChart: View {
     private var scale: (top: Double, step: Double) {
         let peak = max(goalHours ?? 0, days.map { $0.duration / 3600 }.max() ?? 0)
         let maximum = max(1, peak * 1.15)
-        let step: Double = maximum <= 2 ? 0.5 : maximum <= 6 ? 1 : maximum <= 12 ? 2 : maximum <= 24 ? 4 : 8
+        var step: Double = maximum <= 2 ? 0.5 : maximum <= 6 ? 1 : maximum <= 12 ? 2 : maximum <= 24 ? 4 : maximum <= 48 ? 8 : maximum <= 72 ? 12 : 24
+        while maximum > step * 6 { step *= 2 }
         return ((maximum / step).rounded(.up) * step, step)
     }
 
